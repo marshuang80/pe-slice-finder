@@ -6,6 +6,7 @@ import os
 import sys
 import utils
 import time
+import h5py
 
 sys.path.append(os.getcwd())
 
@@ -29,16 +30,14 @@ class RSNADataset(Dataset):
         normalize: bool = False,
     )-> None:
         
-        if split == 'train' or split == 'valid': 
-            self.data_dir = RSNA_TRAIN_DATA_DIR
-            self.csv_path = RSNA_TRAIN_CSV
-        else:
-            self.data_dir = RSNA_TEST_DATA_DIR
-            self.csv_path  = RSNA_TEST_CSV
+        self.hdf5_path = RSNA_TRAIN_HDF5
+        self.csv_path = RSNA_TRAIN_CSV
             
         # read in pandas dataframe
         self.df = pd.read_csv(self.csv_path)
+        self.df = self.df[self.df[NEGATIVE_PE_SERIES_COL] == 0]
         self.df = self.df[self.df[SPLIT_COL] == split]
+        print(self.df[TARGET_COL].value_counts())
        
         # class variables
         self.num_channels = 3 
@@ -60,15 +59,12 @@ class RSNADataset(Dataset):
         
         # get image
         instance = self.df.iloc[idx]
-        study_path = self.data_dir / instance[STUDY_COL] 
-        series_path = study_path / instance[SERIES_COL] 
-        instance_path = series_path / (instance[INSTANCE_COL] + ".dcm")
-        image = utils.read_dicom(path=instance_path)
+        with h5py.File(self.hdf5_path, 'r') as hdf5_fh:
+            image = hdf5_fh[instance[INSTANCE_COL]][:]
 
         # transform image
-        image = Image.fromarray(np.uint8(image * 255), 'L')
-
         if self.transforms is not None:
+            image = Image.fromarray(np.uint8(image * 255), 'L')
             tensor = self.transforms(image)
         else:
             tensor = torch.tensor(image)

@@ -113,8 +113,6 @@ def get_transformations(args)-> transforms.Compose:
     """Create transformations for input images based on arguments"""
 
     transform = []
-    if args.resize_shape is not None:
-        transform.append(transforms.Resize(args.resize_shape, interpolation=2))
     if args.rotation_range != 0:
         transform.append(transforms.RandomRotation(args.rotation_range))
     if args.crop_shape is not None:

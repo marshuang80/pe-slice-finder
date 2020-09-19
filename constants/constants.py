@@ -17,6 +17,10 @@ RSNA_TEST_CSV =  RSNA_DATA_DIR / "test.csv"
 RSNA_TRAIN_DATA_DIR = RSNA_DATA_DIR / "train"
 RSNA_TEST_DATA_DIR = RSNA_DATA_DIR / "test"
 
+# HDF5
+RSNA_TRAIN_HDF5 = RSNA_DATA_DIR / "train.hdf5"
+RSNA_TEST_HDF5 =  RSNA_DATA_DIR / "test.hdf5"
+
 # Log dir
 LOG_DIR = RSNA_DATA_DIR / "log"
 
@@ -26,6 +30,7 @@ STUDY_COL = 'StudyInstanceUID'
 SERIES_COL = 'SeriesInstanceUID'
 INSTANCE_COL = 'SOPInstanceUID'
 TARGET_COL = 'pe_present_on_image'
+NEGATIVE_PE_SERIES_COL = 'negative_exam_for_pe'
 
 # HOUNSFIELD UNIT
 AIR_HU = -1000
