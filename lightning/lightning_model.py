@@ -4,7 +4,9 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import argparse
+import numpy as np
 import utils
+import wandb
 sys.path.append(os.getcwd())
 
 from models          import PECT2DModel
@@ -12,6 +14,7 @@ from eval            import *
 from argparse        import ArgumentParser
 from dataset         import get_dataloader
 from pytorch_lightning.metrics.classification import AveragePrecision, AUROC
+from sklearn.metrics        import f1_score, average_precision_score, roc_auc_score
 
 
 class LightningModel(pl.LightningModule):
@@ -22,13 +25,18 @@ class LightningModel(pl.LightningModule):
         self.hparams.tpu_cores = None  
         #self.save_hyperparameters() TODO: wandb bug of storing hparam in hparam
 
-        self.transforms = utils.get_transformations(self.hparams)
         self.loss = get_loss_fn(hparams)
         self.model = PECT2DModel(
             model_name = hparams.model_name,
             imagenet_pretrain = hparams.imagenet_pretrain,
             ckpt_path = hparams.ckpt_path
         )
+
+        # for computing metrics
+        self.train_probs = []
+        self.val_probs = []
+        self.train_true = []
+        self.val_true = []
 
     def forward(self, x):
         return torch.relu(self.l1(x.view(x.size(0), -1)))
@@ -38,48 +46,80 @@ class LightningModel(pl.LightningModule):
         y = y.type(torch.cuda.FloatTensor)
         y_hat = self.model(x)
 
-        # metric 
-        loss, auroc, auprc = self.evaluate(y, y_hat)
+        # compute loss
+        y_hat = y_hat[:,0]
+        loss = self.loss(y_hat, y)
+        probs = torch.sigmoid(y_hat)
 
         # logging
+        if batch_idx == 0:
+            self.log_image(x)
         result = pl.TrainResult(loss)
-        result.log('train_auroc', auroc, on_epoch=True, sync_dist=True, logger=True)
-        result.log('train_auprc', auprc, on_epoch=True, sync_dist=True, logger=True)
-        result.log('train_loss', loss, sync_dist=True, logger=True)
         result.log(
-            'train_loss', loss, on_epoch=True, 
-            on_step=False, sync_dist=True, logger=True
-        )
+            'train_loss', loss, on_epoch=True, on_step=True, 
+            sync_dist=True, logger=True, prog_bar=True)
+        self.train_probs.append(probs.cpu().detach().numpy())
+        self.train_true.append(y.cpu().detach().numpy())
 
         return result
+
+    def training_epoch_end(self, training_result):
+        # log metric
+        auroc, auprc = self.evaluate(self.train_probs, self.train_true)
+        training_result.log('train_auroc', auroc, on_epoch=True, sync_dist=True, logger=True)
+        training_result.log('train_auprc', auprc, on_epoch=True, sync_dist=True, logger=True)
+        training_result.epoch_train_loss = torch.mean(training_result.train_loss)
+
+        # reset 
+        self.train_probs = []
+        self.train_true = []
+        return training_result
         
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y = y.type(torch.cuda.FloatTensor)
         y_hat = self.model(x)
 
-        loss, auroc, auprc = self.evaluate(y, y_hat) 
+        # compute loss
+        y_hat = y_hat[:,0]
+        loss = self.loss(y_hat, y)
+        probs = torch.sigmoid(y_hat)
 
+        # log loss
         result = pl.EvalResult(checkpoint_on=loss)
         result.log('val_loss', loss, on_epoch=True, on_step=False, sync_dist=True)
-        result.log('val_auroc', auroc, on_epoch=True, sync_dist=True, logger=True)
-        result.log('val_auprc', auprc, on_epoch=True, sync_dist=True, logger=True)
+        self.val_probs.append(probs.cpu().detach().numpy())
+        self.val_true.append(y.cpu().detach().numpy())
 
         return result
 
-    def evaluate(self, y, y_hat):
-        y_hat = y_hat[:,0]
-        probs = torch.sigmoid(y_hat)
-        loss = self.loss(y_hat, y)
+    def validation_epoch_end(self, validation_result):
+        # log metrics
+        auroc, auprc = self.evaluate(self.val_probs, self.val_true)
+        validation_result.log('val_auroc', auroc, on_epoch=True, sync_dist=True, logger=True)
+        validation_result.log('val_auprc', auprc, on_epoch=True, sync_dist=True, logger=True)
+        validation_result.val_loss = torch.mean(validation_result.val_loss)
+
+        # reset 
+        self.val_probs = []
+        self.val_true = []
+        return validation_result
+
+    def evaluate(self, probs, true):
+
+        # concat results from all iterations
+        probs = np.concatenate(probs)
+        true = np.concatenate(true)
 
         # can't calculate metric if no positive example 
-        if (1 not in y) or (0 not in y):
-            auprc = torch.tensor(0.0).cuda()
-            auroc = torch.tensor(0.0).cuda()
+        if (1 not in true) or (0 not in true):
+            auprc = 0
+            auroc = 0
         else:
-            auprc = AveragePrecision()(probs, y).cuda()
-            auroc = AUROC()(probs, y).cuda()
-        return loss, auroc, auprc
+            auprc = average_precision_score(true, probs)
+            auroc = roc_auc_score(true, probs)
+        
+        return auroc, auprc
 
     def configure_optimizers(self):
         if self.hparams.optimizer == "Adam":
@@ -88,13 +128,22 @@ class LightningModel(pl.LightningModule):
             return torch.optim.AdamW(self.model.parameters(), lr=self.hparams.lr)
         else: 
             return torch.optim.SGD(self.model.parameters(), lr=self.hparams.lr)
+    
+    def log_image(self, x):
+        image = x[0].cpu().numpy()
+        image = np.transpose(image, (1,2,0))
+        image = wandb.Image(image, caption='SampleImage')
+        self.logger.experiment.log({'example': image}) 
 
     def __dataloader(self, split):
+
+        transforms = utils.get_transformations(self.hparams, split)
         shuffle = split == "train"
         drop_last = split == "train"
         weighted_sampling = (split == "train") & self.hparams.weighted_sampling
+
         dataset_args = {
-            'transforms': self.transforms, 
+            'transforms': transforms, 
             'normalize': self.hparams.normalize
         }
         dataloader_args = {
