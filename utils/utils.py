@@ -109,18 +109,21 @@ def weighted_sampler(dataset:DataLoader)-> WeightedRandomSampler:
     return sampler
 
 
-def get_transformations(args)-> transforms.Compose:
+def get_transformations(args, split:str = 'train')-> transforms.Compose:
     """Create transformations for input images based on arguments"""
 
     transform = []
-    if args.rotation_range != 0:
-        transform.append(transforms.RandomRotation(args.rotation_range))
-    if args.crop_shape is not None:
-        transform.append(transforms.RandomCrop(args.crop_shape))
-    if args.horizontal_flip:
-        transform.append(transforms.RandomHorizontalFlip(p=0.5))
-    if args.vertical_flip:
-        transform.append(transforms.RandomVerticalFlip(p=0.5))
+    if split == 'train':
+        if args.rotation_range != 0:
+            transform.append(transforms.RandomRotation(args.rotation_range))
+        if args.crop_shape is not None:
+            transform.append(transforms.RandomCrop(args.crop_shape))
+        if args.horizontal_flip:
+            transform.append(transforms.RandomHorizontalFlip(p=0.5))
+        if args.vertical_flip:
+            transform.append(transforms.RandomVerticalFlip(p=0.5))
+    else:
+        transform.append(transforms.CenterCrop(args.crop_shape))
     transform.append(transforms.ToTensor())
 
     transform = transforms.Compose(transform)

@@ -1,6 +1,6 @@
 python3 train_main.py --trial_name trial_1.0 \
                       --experiment_name debug \
-                      --lr 0.001 \
+                      --lr 0.01 \
                       --batch_size 32 \
                       --num_workers 16 \
                       --optimizer AdamW \
