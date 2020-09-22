@@ -38,9 +38,6 @@ class LightningModel(pl.LightningModule):
         self.train_true = []
         self.val_true = []
 
-    def forward(self, x):
-        return torch.relu(self.l1(x.view(x.size(0), -1)))
-
     def training_step(self, batch, batch_idx):
         x, y = batch
         y = y.type(torch.cuda.FloatTensor)
