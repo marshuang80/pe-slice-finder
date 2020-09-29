@@ -22,21 +22,22 @@ class LightningModel(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
-        self.hparams.tpu_cores = None  
         #self.save_hyperparameters() TODO: wandb bug of storing hparam in hparam
 
-        self.loss = get_loss_fn(hparams)
+        self.loss = get_loss_fn(self.hparams)
         self.model = PECT2DModel(
-            model_name = hparams.model_name,
-            imagenet_pretrain = hparams.imagenet_pretrain,
-            ckpt_path = hparams.ckpt_path
+            model_name = self.hparams.model_name,
+            imagenet_pretrain = self.hparams.imagenet_pretrain,
+            ckpt_path = self.hparams.ckpt_path
         )
 
         # for computing metrics
         self.train_probs = []
         self.val_probs = []
+        self.test_probs = []
         self.train_true = []
         self.val_true = []
+        self.test_true = []
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -101,6 +102,40 @@ class LightningModel(pl.LightningModule):
         self.val_probs = []
         self.val_true = []
         return validation_result
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y = y.type(torch.cuda.FloatTensor)
+        y_hat = self.model(x)
+
+        # compute loss
+        y_hat = y_hat[:,0]
+        loss = self.loss(y_hat, y)
+        probs = torch.sigmoid(y_hat)
+
+        # log loss
+        result = pl.EvalResult(checkpoint_on=loss)
+        result.log('test_loss', loss, on_epoch=True, on_step=False, sync_dist=True)
+        self.test_probs.append(probs.cpu().detach().numpy())
+        self.test_true.append(y.cpu().detach().numpy())
+
+        return result
+
+    def test_epoch_end(self, test_result):
+        # log metrics
+        auroc, auprc = self.evaluate(self.test_probs, self.test_true)
+        print(f"Test AUROC: {auroc}")
+        print(f"Test AUPRC: {auprc}")
+
+        test_result.log('test_auroc', auroc, on_epoch=True, sync_dist=True, logger=True)
+        test_result.log('test_auprc', auprc, on_epoch=True, sync_dist=True, logger=True)
+        test_result.test_loss = torch.mean(test_result.test_loss)
+
+        # reset 
+        self.test_probs = []
+        self.test_true = []
+        return test_result 
+
 
     def evaluate(self, probs, true):
 

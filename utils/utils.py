@@ -57,7 +57,7 @@ def normalize_and_window_hu(image:np.ndarray)-> np.ndarray:
     return image
 
 
-def read_dicom(path:Union[str,Path])->np.ndarray:
+def read_dicom(path:Union[str,Path])-> np.ndarray:
     """Read dicom file from path
 
     Args:

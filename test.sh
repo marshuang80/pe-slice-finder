@@ -1,4 +1,5 @@
-python3 train_main.py --trial_name trial_1.0 \
+python3 test_main.py --checkpoint_path /data4/rsna/ckpts/pe-slice-finder/2jundh48/checkpoints/epoch\=8.ckpt \
+                     --trial_name trial_1.0 \
                       --experiment_name debug \
                       --lr 0.0001445 \
                       --batch_size 32 \
@@ -24,5 +25,3 @@ python3 train_main.py --trial_name trial_1.0 \
                       --max_epoch 10 \
                       --weights_save_path /data4/rsna/ckpts \
                       --val_check_interval 0.1 \
-                      #--auto_lr_find lr \
-                      #--auto_scale_batch_size power \

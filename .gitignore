@@ -130,6 +130,8 @@ dmypy.json
 
 # logs
 wandb
+lightning_logs
 
 # checkpoints
 *.ckpt
+
